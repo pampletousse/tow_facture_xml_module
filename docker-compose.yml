@@ -1,0 +1,54 @@
+version: "3"
+services:
+  mysql:
+    container_name: some-mysql
+    volumes:
+      - dbdata:/var/lib/mysql
+    image: mysql:5.7
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: admin
+      MYSQL_DATABASE: prestashop
+    networks:
+      - prestashop_network
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: phpmyadmin
+    links:
+      - mysql
+    environment:
+      PMA_HOST: some-mysql
+      PMA_PORT: 3306
+      PMA_ARBITRARY: 1
+      PMA_USER: root
+      PMA_PASSWORD: admin
+    restart: unless-stopped
+    ports:
+      - 8081:80
+    networks:
+      - prestashop_network
+  prestashop:
+    container_name: prestashop
+    image: prestashop/prestashop:latest
+    restart: unless-stopped
+    depends_on:
+      - mysql
+    ports:
+      - 8080:80
+    environment:
+      DB_SERVER: some-mysql
+      DB_NAME: prestashop
+      DB_USER: root
+      DB_PASSWD: admin
+    networks:
+      - prestashop_network
+    volumes:
+      - psdata:/var/www/html
+      - type: bind
+        source: ./modules/tow_facture_xml # local path to the module
+        target: /var/www/html/modules/tow_facture_xml # path to be mounted in the container
+networks:
+  prestashop_network:
+volumes:
+  dbdata:
+  psdata:
