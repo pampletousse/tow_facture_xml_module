@@ -66,7 +66,10 @@ class Tow_facture_xml extends Module
         return parent::install() &&
             $this->registerHook('header') &&
             $this->registerHook('displayBackOfficeHeader') &&
-            $this->registerHook('actionOrderDetail');
+            $this->registerHook('actionOrderDetail') &&
+            $this->registerHook('displayAdminOrderMainBottom') &&
+            $this->registerHook('displayAdminOrderTop') &&
+            $this->registerHook('actionGetAdminOrderButtons');
     }
 
     public function uninstall()
@@ -222,5 +225,55 @@ class Tow_facture_xml extends Module
     public function hookActionOrderDetail()
     {
         /* Place your code here. */
+    }
+
+    public function hookActionGetAdminOrderButtons(array $params)
+    {
+        $order = new Order($params['id_order']);
+
+        #/** @var \Symfony\Bundle\FrameworkBundle\Routing\Router $router */
+        #$router = $this->get('router');
+
+        /** @var \PrestaShop\PrestaShop\Core\Action\ActionsBarButtonsCollection $bar */
+        $bar = $params['actions_bar_buttons_collection'];
+
+        #$facture_xml_url = $router->generate('facture_xml_view', ['customerId'=> (int)$order->id_customer]);
+
+        $bar->add(
+            new \PrestaShop\PrestaShop\Core\Action\ActionsBarButton(
+                'btn-secondary', ['href' => "test"], 'Générer Facture PEPPOL'
+            )
+        );
+        #$createAnOrderUrl = $router->generate('admin_orders_create');
+    }
+
+    public function hookDisplayAdminOrderTop($params)
+    {
+        /*$orderId = (int)$params['id_order'];
+
+        $this->context->smarty->assign([
+            'order_id' => $orderId,
+            'custom_link' => $this->context->link->getModuleLink(
+                $this->name,
+                'customaction',
+                ['id_order' => $orderId]
+            )
+        ]);
+        return $this->display(__FILE__, 'views/templates/hook/custom_button.tpl');*/
+    }
+
+    public function hookDisplayAdminOrderMainBottom($params)
+    {
+        /*$orderId = (int)$params['id_order'];
+
+        $this->context->smarty->assign([
+            'order_id' => $orderId,
+            'custom_link' => $this->context->link->getModuleLink(
+                $this->name,
+                'customaction',
+                ['id_order' => $orderId]
+            )
+        ]);
+        return $this->display(__FILE__, 'views/templates/hook/custom_button.tpl');*/
     }
 }

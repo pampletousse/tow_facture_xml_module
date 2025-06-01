@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<module>
+    <name>tow_facture_xml</name>
+    <displayName><![CDATA[Tow Facture XML Module]]></displayName>
+    <version><![CDATA[0.0.1]]></version>
+    <description><![CDATA[G&eacute;n&egrave;re une facture XML UBL 2.1]]></description>
+    <author><![CDATA[Vysuel]]></author>
+    <tab><![CDATA[administration]]></tab>
+    <is_configurable>1</is_configurable>
+    <need_instance>1</need_instance>
+</module>

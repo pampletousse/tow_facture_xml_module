@@ -118,7 +118,6 @@ app/config/config.php
 
 # Themes and overrides
 
-override/*
 themes/*/
 !themes/classic
 !themes/_core
