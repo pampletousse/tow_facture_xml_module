@@ -39,10 +39,6 @@ class Tow_facture_xml extends Module
         $this->version = '0.0.1';
         $this->author = 'Vysuel';
         $this->need_instance = 1;
-
-        /**
-         * Set $this->bootstrap to true if your module is compliant with bootstrap (PrestaShop 1.6)
-         */
         $this->bootstrap = true;
 
         parent::__construct();
@@ -69,14 +65,15 @@ class Tow_facture_xml extends Module
             $this->registerHook('actionOrderDetail') &&
             $this->registerHook('displayAdminOrderMainBottom') &&
             $this->registerHook('displayAdminOrderTop') &&
-            $this->registerHook('actionGetAdminOrderButtons');
+            $this->registerHook('actionGetAdminOrderButtons') &&
+            $this->installTab();
     }
 
     public function uninstall()
     {
         Configuration::deleteByName('TOW_FACTURE_XML_LIVE_MODE');
 
-        return parent::uninstall();
+        return parent::uninstall() && $this->uninstallTab();
     }
 
     /**
@@ -227,24 +224,152 @@ class Tow_facture_xml extends Module
         /* Place your code here. */
     }
 
+    private function installTab()
+    {
+        $tab = new Tab();
+        $tab->class_name = 'Tow_Facture_XmlGenerateFacturePeppol';
+        $tab->module = $this->name;
+        $tab->id_parent = (int) Tab::getIdFromClassName('AdminParentOrders');
+        $tab->active = 1;
+        $tab->name = [];
+
+        foreach (Language::getLanguages() as $lang) {
+            $tab->name[$lang['id_lang']] = 'Facture Peppol (hidden)';
+        }
+
+        $tab->id_parent = (int) Tab::getIdFromClassName('AdminParentOrders');
+        return $tab->add();
+    }
+
+    private function uninstallTab()
+    {
+        $idTab = (int) Tab::getIdFromClassName('Tow_Facture_XmlGenerateFacturePeppol');
+        if ($idTab) {
+            $tab = new Tab($idTab);
+            return $tab->delete();
+        }
+        return true;
+    }
+
     public function hookActionGetAdminOrderButtons(array $params)
     {
-        $order = new Order($params['id_order']);
+        $idOrder = (int) Tools::getValue('id_order');
+        $this->generateFactureXml($idOrder);
+    }
 
-        #/** @var \Symfony\Bundle\FrameworkBundle\Routing\Router $router */
-        #$router = $this->get('router');
+    public function generateFactureXml(int $idOrder)
+    {
+        // Prestashop 
+        $idOrder = (int) Tools::getValue('id_order');
+        $order = new Order($idOrder);
 
-        /** @var \PrestaShop\PrestaShop\Core\Action\ActionsBarButtonsCollection $bar */
-        $bar = $params['actions_bar_buttons_collection'];
+        if (!Validate::isLoadedObject($order)) {
+            die('Commande introuvable.');
+        }
 
-        #$facture_xml_url = $router->generate('facture_xml_view', ['customerId'=> (int)$order->id_customer]);
+        $customer = new Customer($order->id_customer);
+        $currency = new Currency($order->id_currency);
+        $products = $order->getProducts();
+        $invoiceNumber = 'INV-' . $order->id;
+        $issueDate = date('Y-m-d');
+        $currencyCode = $currency->iso_code;
 
-        $bar->add(
-            new \PrestaShop\PrestaShop\Core\Action\ActionsBarButton(
-                'btn-secondary', ['href' => "test"], 'Générer Facture PEPPOL'
-            )
-        );
-        #$createAnOrderUrl = $router->generate('admin_orders_create');
+        $totalHt = $order->total_products + $order->total_shipping_tax_excl;
+        $totalTtc = $order->total_paid;
+        $totalTax = $totalTtc - $totalHt;
+
+        // Création XML
+        $xml = new DOMDocument('1.0', 'UTF-8');
+        $xml->formatOutput = true;
+
+        $invoice = $xml->createElement('Invoice');
+        $invoice->setAttribute('xmlns', 'urn:oasis:names:specification:ubl:schema:xsd:Invoice-2');
+        $invoice->setAttribute('xmlns:cac', 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2');
+        $invoice->setAttribute('xmlns:cbc', 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2');
+        $xml->appendChild($invoice);
+
+        $invoice->appendChild($xml->createElement('cbc:CustomizationID', 'urn:cen.eu:en16931:2017'));
+        $invoice->appendChild($xml->createElement('cbc:ProfileID', 'urn:fdc:peppol.eu:2017:poacc:billing:01:1.0'));
+        $invoice->appendChild($xml->createElement('cbc:ID', $invoiceNumber));
+        $invoice->appendChild($xml->createElement('cbc:IssueDate', $issueDate));
+        $invoice->appendChild($xml->createElement('cbc:InvoiceTypeCode', '380'));
+        $invoice->appendChild($xml->createElement('cbc:DocumentCurrencyCode', $currencyCode));
+
+        // Vendeur
+        $supplierParty = $xml->createElement('cac:AccountingSupplierParty');
+        $partySupplier = $xml->createElement('cac:Party');
+        $partyNameSupplier = $xml->createElement('cac:PartyName');
+        $partyNameSupplier->appendChild($xml->createElement('cbc:Name', htmlspecialchars(Configuration::get('PS_SHOP_NAME'))));
+        $partySupplier->appendChild($partyNameSupplier);
+        $supplierParty->appendChild($partySupplier);
+        $invoice->appendChild($supplierParty);
+
+        // Acheteur
+        $customerParty = $xml->createElement('cac:AccountingCustomerParty');
+        $partyCustomer = $xml->createElement('cac:Party');
+        $partyNameCustomer = $xml->createElement('cac:PartyName');
+        $partyNameCustomer->appendChild($xml->createElement('cbc:Name', htmlspecialchars($customer->firstname . ' ' . $customer->lastname)));
+        $partyCustomer->appendChild($partyNameCustomer);
+        $customerParty->appendChild($partyCustomer);
+        $invoice->appendChild($customerParty);
+
+        // Produits
+        $lineId = 1;
+        foreach ($products as $product) {
+            $invoiceLine = $xml->createElement('cac:InvoiceLine');
+            $invoiceLine->appendChild($xml->createElement('cbc:ID', $lineId++));
+            $invoiceLine->appendChild($xml->createElement('cbc:InvoicedQuantity', $product['product_quantity']));
+            $invoiceLine->appendChild($xml->createElement('cbc:LineExtensionAmount', number_format($product['total_price_tax_excl'], 2, '.', '')));
+
+            $item = $xml->createElement('cac:Item');
+            $item->appendChild($xml->createElement('cbc:Name', htmlspecialchars($product['product_name'])));
+            $invoiceLine->appendChild($item);
+
+            $price = $xml->createElement('cac:Price');
+            $price->appendChild($xml->createElement('cbc:PriceAmount', number_format($product['unit_price_tax_excl'], 2, '.', '')));
+            $invoiceLine->appendChild($price);
+
+            $invoice->appendChild($invoiceLine);
+        }
+
+        // Frais de livraison
+        if ((float)$order->total_shipping_tax_excl > 0) {
+            $invoiceLine = $xml->createElement('cac:InvoiceLine');
+            $invoiceLine->appendChild($xml->createElement('cbc:ID', $lineId++));
+            $invoiceLine->appendChild($xml->createElement('cbc:InvoicedQuantity', 1));
+            $invoiceLine->appendChild($xml->createElement('cbc:LineExtensionAmount', number_format($order->total_shipping_tax_excl, 2, '.', '')));
+
+            $item = $xml->createElement('cac:Item');
+            $item->appendChild($xml->createElement('cbc:Name', 'Frais de livraison'));
+            $invoiceLine->appendChild($item);
+
+            $price = $xml->createElement('cac:Price');
+            $price->appendChild($xml->createElement('cbc:PriceAmount', number_format($order->total_shipping_tax_excl, 2, '.', '')));
+            $invoiceLine->appendChild($price);
+
+            $invoice->appendChild($invoiceLine);
+        }
+
+        // Taxes
+        $taxTotal = $xml->createElement('cac:TaxTotal');
+        $taxTotal->appendChild($xml->createElement('cbc:TaxAmount', number_format($totalTax, 2, '.', '')));
+        $invoice->appendChild($taxTotal);
+
+        // Totaux
+        $monetaryTotal = $xml->createElement('cac:LegalMonetaryTotal');
+        $monetaryTotal->appendChild($xml->createElement('cbc:LineExtensionAmount', number_format($totalHt, 2, '.', '')));
+        $monetaryTotal->appendChild($xml->createElement('cbc:TaxExclusiveAmount', number_format($totalHt, 2, '.', '')));
+        $monetaryTotal->appendChild($xml->createElement('cbc:TaxInclusiveAmount', number_format($totalTtc, 2, '.', '')));
+        $monetaryTotal->appendChild($xml->createElement('cbc:PayableAmount', number_format($totalTtc, 2, '.', '')));
+        $invoice->appendChild($monetaryTotal);
+
+        // Enregistrement
+        $filename = 'generated_invoice_' . $order->id . '.xml';
+        $moduleDir = _PS_MODULE_DIR_ . 'tow_facture_xml/invoices/';
+        if (!is_dir($moduleDir)) {
+            mkdir($moduleDir, 0755, true);
+        }
+        $xml->save($moduleDir . $filename);
     }
 
     public function hookDisplayAdminOrderTop($params)

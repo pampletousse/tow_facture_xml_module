@@ -193,4 +193,5 @@ themes/default-bootstrap/modules/*/mails/*
 .history
 .ionide
 
-# End of https://www.toptal.com/developers/gitignore/api/prestashop,visualstudiocode
+# Factures génerées
+modules/tow_facture_xml/invoices*
